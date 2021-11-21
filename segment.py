@@ -1,6 +1,7 @@
 import struct
 import sys
 
+MAX_DATA_SIZE = 32768
 
 def bytes2hexstring(byte_obj):
     return ''.join('{:02x}'.format(x) for x in byte_obj)
@@ -64,10 +65,10 @@ class Segment():
             '2s', checksum.to_bytes(2, byteorder="big"))
 
     def set_data(self, data):
-        if sys.getsizeof(data) > 32768:
+        if len(data) > MAX_DATA_SIZE:
             print("Data is too big for segment")
         else:
-            self.data = struct.pack('{}s'.format(sys.getsizeof(data)), data)
+            self.data = struct.pack('{}s'.format(len(data)), data)
 
     # TODO: checksum error
     def calc_checksum(self, seqnum, acknum, _flagtype, data):
@@ -134,7 +135,7 @@ class SegmentUnwrapper():
         # print(self.checksum)
 
     def get_segment_data(self):
-        self.data = self.raw_buffer[7:]
+        self.data = self.raw_buffer[12:].rstrip(b'\x00')
 
     # TODO: verify_integrity error
     def verify_integrity(self):
