@@ -59,8 +59,7 @@ class Segment():
         self.flagtype = struct.pack('c', _flagtype)
 
     def set_checksum(self):
-        checksum = self.calc_checksum(
-            self.seqnum, self.acknum, self.flagtype, self.data)
+        checksum = self.calc_checksum(self.flagtype, self.seqnum, self.acknum, self.data)
         self.checksum = struct.pack(
             '2s', checksum.to_bytes(2, byteorder="big"))
 
@@ -70,28 +69,21 @@ class Segment():
         else:
             self.data = struct.pack('{}s'.format(len(data)), data)
 
-    # TODO: checksum error
-    def calc_checksum(self, seqnum, acknum, _flagtype, data):
-        sum = 0x00
-        data = seqnum + acknum + _flagtype + data
+    def calc_checksum(self, _type, seqnum, acknum, data):
+        sum = 0
+        data = _type + seqnum + acknum + data
         length_data = len(data)
         if (length_data % 2 != 0):
             length_data += 1
             data += struct.pack('!B', 0)
-        # print(data)
-        sum = (data[0] << 8) + (data[1])
-        for i in range(2, length_data, 2):
+
+        for i in range(0, length_data, 2):
             w = (data[i] << 8) + (data[i+1])
-            sum = sum + w
+            sum += w
+
+        sum = (sum >> 16) + (sum & 0xFFFF)
         return (~sum & 0xFFFF)
 
-        # words = list((data >> i) & 0xFF for i in range(0, len(data), 2))
-        # for word in words:
-        #     sum += word
-        #     sum = (sum & 0xffff) + (sum >> 16)
-        # return (~sum & 0xffff)
-
-    # TODO: build error
     def build(self):
         # max_data = 32768
         return struct.pack('4s4scc2s{}s'.format(sys.getsizeof(self.data)), self.seqnum, self.acknum, self.flagtype, b'\x00', self.checksum, self.data)
@@ -118,8 +110,7 @@ class SegmentUnwrapper():
         self.get_segment_acknum()
         self.get_segment_data()
         self.get_segment_checksum()
-        # self.is_valid = self.verify_integrity()
-
+        self.is_valid = self.verify_integrity()
 
     def get_segment_type(self):
         self.flagtype = self.raw_type.to_bytes(1, byteorder="big")
@@ -139,25 +130,29 @@ class SegmentUnwrapper():
 
     # TODO: verify_integrity error
     def verify_integrity(self):
-        data = self.raw_type + self.raw_seqnum + self.raw_acknum + self.data
+        data = self.flagtype + self.raw_seqnum + self.raw_acknum + self.data
         sum = 0x00
         data_len = len(data)
         if (data_len % 2 != 0):
             data_len += 1
             data += struct.pack('!B', 0)
 
-        sum = (data[0] << 8) + (data[1])
-        for i in range(2, data_len, 2):
+        # sum = (data[0] << 8) + (data[1])
+        for i in range(0, data_len, 2):
             w = (data[i] << 8) + (data[i+1])
             sum += w
+        sum = (sum >> 16) + (sum & 0xFFFF)
         sum = ~sum & 0xFFFF
         sum = struct.pack('2s', sum.to_bytes(2, byteorder="big"))
+        self.sum = sum
         return True if sum == self.raw_checksum else False
 
     def __str__(self):
         return f'{self.raw_type} \
 {self.raw_seqnum} \
-{self.raw_acknum}'
+{self.raw_acknum} \
+{self.raw_checksum} \
+{self.data}'
 
 # if __name__ == '__main__':
 #     # file = open("test.txt", "r")
