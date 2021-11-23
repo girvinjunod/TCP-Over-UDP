@@ -1,15 +1,16 @@
 import sys
 import socket
 import logging
-from typing import Tuple
+from typing import List, Tuple
 from segment import *
 
 HOST = socket.gethostbyname(socket.gethostname())
-SERVER_SEQUENCE_NUM = 1
-BUFFER_SIZE = 8208*4
+SERVER_SEQUENCE_NUM = 0
+BUFFER_SIZE = 32777
 DATA_SIZE = 32768
+WINDOW_SIZE = 5
 
-def listening_segment(sock: socket, segment_type: SegmentFlagType) -> Tuple[bool, Segment, tuple]:
+def listening_segment(sock: socket, segment_type: SegmentFlagType) -> Tuple[bool, SegmentUnwrapper, tuple]:
   msg, addr = sock.recvfrom(BUFFER_SIZE)
 
   # Unwrap client message
@@ -21,54 +22,82 @@ def listening_segment(sock: socket, segment_type: SegmentFlagType) -> Tuple[bool
 
   return False, segment_received, addr
 
-def three_way_handshake_server(sock: socket) -> Tuple[bool, tuple]:
-  # Three way handshake to client
-  # Listening for SYN segment
-  valid, syn_segment, addr = listening_segment(sock, SegmentFlagType.SYN)
+def three_way_handshake_server(sock: socket, client: tuple) -> bool:
+  # Performing three way handshake with client
+  logging.info(f'Performing three way handshake with client({client[0]}:{client[1]})..')
 
+  # Build segment
+  syn_segment = Segment(SERVER_SEQUENCE_NUM, 0, SegmentFlagType.SYN, ''.encode())
+  three_way_success = False
+  sock.sendto(syn_segment.buffer, client)
+  logging.info(f'Segment SEQ={syn_segment.seqnum_data}: Sent {SegmentFlagType.getFlag(syn_segment.flagtype_data)}')
+
+  # Listening for SYNACK segment from client
+  valid, synack_segment, addr = listening_segment(sock, SegmentFlagType.SYNACK)
+
+  # Receive SYN ACK segment from client
   if valid:
-    # Send SYN-ACK segment to client
-    synack_segment = Segment(
-      SERVER_SEQUENCE_NUM, syn_segment.seqnum+1, SegmentFlagType.SYNACK, b'')
-    sock.sendto(synack_segment.build(), addr)
+    # Send ack segment to client
+    ack_segment = Segment(SERVER_SEQUENCE_NUM+1, synack_segment.seqnum+1, SegmentFlagType.ACK, ''.encode())
+    sock.sendto(ack_segment.build(), addr)
+    logging.info(f'Segment SEQ={synack_segment.seqnum}: Received {SegmentFlagType.getFlag(synack_segment.flagtype)}, Sent {SegmentFlagType.getFlag(ack_segment.flagtype_data)}')
+    three_way_success = True
+  else:
+    logging.info(f'Received unknown flag! Retrying three way handshake..')
 
-    # Receive ACK segment from client
-    valid, ack_segment, addr = listening_segment(sock, SegmentFlagType.ACK)
-
-    if valid:
-      return True, addr
-
-  return False, addr
+  return three_way_success
 
 def send_data(sock: socket, f, client: tuple):
-  # Send file
-  data_sent = 0
+  # Read file
+  seq_num = 0
+  segments_to_send: List(Segment) = []
   while True:
     # Read data
     data = f.read(DATA_SIZE)
     if not data:
       break
 
-    # Send file name
-    # filename_segment = Segment(SERVER_SEQUENCE_NUM, 0, SegmentFlagType.DATA, filename.encode())
-    # s.sendto(filename_segment.build(), client)
-    # SERVER_SEQUENCE_NUM += 1
+    # Create data segment and add to list
+    data_segment = Segment(SERVER_SEQUENCE_NUM+seq_num, 0, SegmentFlagType.DATA, data)
+    seq_num += 1
+    segments_to_send.append(data_segment)
 
-    # Send file data to client
-    segment_to_send = Segment(SERVER_SEQUENCE_NUM+data_sent, 0, SegmentFlagType.DATA, data)
-    sock.sendto(segment_to_send.build(), client)
-    logging.info(f'Segment SEQ={segment_to_send.seqnum_data}: Sent')
-    data_sent += 1
+  num_segments = len(segments_to_send)
+  base = 0
+  next_seq_num = SERVER_SEQUENCE_NUM
+  # Sending data using Go-Back-N
+  while base < num_segments:
+    # Sb := 0
+    # Sm := N + 1
+    # Repeat the following steps forever:
+    #   	if you receive an ack number where Rn > Sb then
+    #       	Sm := (Sm − Sb) + Rn
+    #       	Sb := Rn
+    #   	if no packet is in transmission then
+    #       	Transmit packets where Sb ≤ Sn ≤ Sm.  
+    #       	Packets are transmitted in order.
 
-  # Listening Ack from client
-  data_received = 0
-  while data_received < data_sent:
+    # Sent data segment in sliding windows
+    while next_seq_num < min(base + WINDOW_SIZE, num_segments):
+      sock.sendto(segments_to_send[next_seq_num].buffer, client)
+      logging.info(f'Segment SEQ={next_seq_num}: Sent')
+      next_seq_num += 1
+
+    # Receive Ack segment from client
     valid, response_received, _ = listening_segment(sock, SegmentFlagType.ACK)
-    if valid:
-      logging.info(f'Segment SEQ={response_received.acknum-1}: Packet Acked')
-    else:
-      logging.error(f'Segment SEQ={response_received.acknum-1}: Packet not acked')
-    data_received += 1
+    if valid and response_received.acknum-1 == base:
+      logging.info(f'Segment SEQ={base}: Packet Acked')
+      
+      base += 1
+    else :
+      logging.error(f'Segment SEQ={base}: Packet not acked! Sending all packet in sliding window..')
+
+      # Sent data segment in sliding windows
+      next_seq_num = base
+      while next_seq_num < min(base + WINDOW_SIZE, num_segments):
+        sock.sendto(segments_to_send[next_seq_num].buffer, client)
+        logging.info(f'Segment SEQ={next_seq_num}: Sent')
+        next_seq_num += 1
 
   fin_segment = Segment(SERVER_SEQUENCE_NUM, 0, SegmentFlagType.FIN, b'')
   sock.sendto(fin_segment.build(), client)
@@ -82,39 +111,45 @@ def setup_server(PORT, FILE_PATH):
   client_list = []
   # Find clients
   while True:
-    # Three way handshake with client
-    try:
-      three_way_success, addr = three_way_handshake_server(s)
-      
-      if three_way_success:
-        # Add client address to list
-        logging.info(f'Client {addr} found')
-        client_list.append(addr)
-        cont = input('Listen more? (y/n)')
-      
-        if cont == 'y':
-          pass
-        else:
-          break
-      
+    # Listening for clients
+    msg, addr = s.recvfrom(BUFFER_SIZE)
+
+    if addr:
+      # Add client address to list
+      logging.info(f'Client {addr} found')
+      client_list.append(addr)
+      cont = input('Listen more? (y/n)')
+    
+      if cont == 'y':
+        pass
       else:
-        logging.info(f'Client {addr} failed to connect! Listening for more client..')
-    except:
-      logging.error('Error occured during three way handshake!')
+        break
 
   logging.info(f'{len(client_list)} clients found:')
   for i in range(len(client_list)):
     logging.info(f'{i+1}. {client_list[i][0]}:{client_list[i][1]}')
 
-  # Send message to all clients
+  # Send message to all clients, perform three way handshake
   with open(FILE_PATH, 'rb') as f:
 
     for client in client_list:
+      three_way_success = False
+      try:
+        three_way_success = three_way_handshake_server(s, client)
+      except:
+        logging.error(f'Error occured during three way handshake with client {client}!')
+
+      if not three_way_success:
+        logging.info(f'Client {client[0]}:{client[1]} fail to perform three way! Continuing sending data to other client..')
+        continue
+      
+      logging.info('Three way success, sending data to client...')
       f.seek(0)
       try:
         send_data(s, f, client)
-      except:
+      except Exception as e:
         logging.error(f'Error occured during sending data to {client}')
+        logging.error(e)
         continue
 
 if __name__ == '__main__':
