@@ -6,8 +6,8 @@ from typing import Tuple
 from segment import *
 
 HOST = socket.gethostbyname(socket.gethostname())
-CLIENT_SEQUENCE_NUM = 1
-BUFFER_SIZE = 32777
+CLIENT_SEQUENCE_NUM = 0
+BUFFER_SIZE = 32780
 
 def listening_segment(sock: socket, segment_type: SegmentFlagType) -> Tuple[bool, SegmentUnwrapper, tuple]:
   msg, addr = sock.recvfrom(BUFFER_SIZE)
@@ -17,7 +17,7 @@ def listening_segment(sock: socket, segment_type: SegmentFlagType) -> Tuple[bool
 
   # Check segment flag type
   if segment_received.flagtype == segment_type:
-    return True, segment_received, addr
+    return segment_received.is_valid, segment_received, addr
 
   return False, segment_received, addr
 
@@ -74,7 +74,7 @@ def receive_data(sock: socket, file):
       logging.info(f'Data received successfuly! File saved at {FILE_PATH}')
       break
 
-    else: # Damaged segment
+    elif not valid or data_segment.seqnum > base: # Damaged segment
       refuse_segment = Segment(CLIENT_SEQUENCE_NUM, base, SegmentFlagType.SYN, b'')
       sock.sendto(refuse_segment.buffer, addr)
 

@@ -6,7 +6,7 @@ from segment import *
 
 HOST = socket.gethostbyname(socket.gethostname())
 SERVER_SEQUENCE_NUM = 0
-BUFFER_SIZE = 32777
+BUFFER_SIZE = 32780
 DATA_SIZE = 32768
 WINDOW_SIZE = 5
 
@@ -18,7 +18,7 @@ def listening_segment(sock: socket, segment_type: SegmentFlagType) -> Tuple[bool
 
   # Check segment flag type
   if segment_received.flagtype == segment_type:
-    return True, segment_received, addr
+    return segment_received.is_valid, segment_received, addr
 
   return False, segment_received, addr
 
@@ -50,7 +50,7 @@ def three_way_handshake_server(sock: socket, client: tuple) -> bool:
 def send_data(sock: socket, f, client: tuple):
   # Read file
   seq_num = 0
-  segments_to_send: List(Segment) = []
+  segments_to_send: List[Segment] = []
   while True:
     # Read data
     data = f.read(DATA_SIZE)
@@ -85,19 +85,15 @@ def send_data(sock: socket, f, client: tuple):
 
     # Receive Ack segment from client
     valid, response_received, _ = listening_segment(sock, SegmentFlagType.ACK)
-    if valid and response_received.acknum-1 == base:
+    if valid and response_received.acknum-1 == SERVER_SEQUENCE_NUM+base:
       logging.info(f'Segment SEQ={base}: Packet Acked')
       
       base += 1
     else :
-      logging.error(f'Segment SEQ={base}: Packet not acked! Sending all packet in sliding window..')
+      logging.error(f'Segment SEQ={base}: Packet not acked! Reset sliding window and resent all segment in window..')
 
       # Sent data segment in sliding windows
       next_seq_num = base
-      while next_seq_num < min(base + WINDOW_SIZE, num_segments):
-        sock.sendto(segments_to_send[next_seq_num].buffer, client)
-        logging.info(f'Segment SEQ={next_seq_num}: Sent')
-        next_seq_num += 1
 
   fin_segment = Segment(SERVER_SEQUENCE_NUM, 0, SegmentFlagType.FIN, b'')
   sock.sendto(fin_segment.build(), client)

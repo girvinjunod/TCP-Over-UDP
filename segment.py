@@ -86,14 +86,13 @@ class Segment():
 
     def build(self):
         # max_data = 32768
-        return struct.pack('4s4scc2s{}s'.format(sys.getsizeof(self.data)), self.seqnum, self.acknum, self.flagtype, b'\x00', self.checksum, self.data)
+        return struct.pack('4s4scc2s{}s'.format(len(self.data)), self.seqnum, self.acknum, self.flagtype, b'\x00', self.checksum, self.data)
 
     def __str__(self):
         return f'{bytes2hexstring(self.seqnum)} \
 {bytes2hexstring(self.acknum)} \
 {bytes2hexstring(self.flagtype)} \
-{bytes2hexstring(self.checksum)} \
-{bytes2hexstring(self.data)}'
+{bytes2hexstring(self.checksum)}'
 
 
 class SegmentUnwrapper():
@@ -104,6 +103,7 @@ class SegmentUnwrapper():
         self.raw_acknum = payload[4:8]
         self.raw_type = payload[8]
         self.raw_checksum = payload[10:12]
+        self.raw_data = payload[12:]
 
         self.get_segment_type()
         self.get_segment_seqnum()
@@ -126,11 +126,11 @@ class SegmentUnwrapper():
         # print(self.checksum)
 
     def get_segment_data(self):
-        self.data = self.raw_buffer[12:].rstrip(b'\x00')
+        self.data = self.raw_data.rstrip(b'\x00')
 
     # TODO: verify_integrity error
     def verify_integrity(self):
-        data = self.flagtype + self.raw_seqnum + self.raw_acknum + self.data
+        data = self.flagtype + self.raw_seqnum + self.raw_acknum + self.raw_data
         sum = 0x00
         data_len = len(data)
         if (data_len % 2 != 0):
@@ -149,10 +149,9 @@ class SegmentUnwrapper():
 
     def __str__(self):
         return f'{self.raw_type} \
-{self.raw_seqnum} \
-{self.raw_acknum} \
-{self.raw_checksum} \
-{self.data}'
+{self.seqnum} \
+{self.acknum} \
+{self.checksum}'
 
 # if __name__ == '__main__':
 #     # file = open("test.txt", "r")
