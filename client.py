@@ -1,66 +1,102 @@
+import os
 import socket
 import logging
 import sys
+from typing import Tuple
 from segment import *
 
 HOST = socket.gethostbyname(socket.gethostname())
 CLIENT_SEQUENCE_NUM = 1
-DEFAULT_BUFFER_SIZE = 8208*4
+BUFFER_SIZE = 8208*4
 
-# Client to send data to server on UDP port
-# Perform three way handshake on found
-# On successful handshake receive data to server
+def listening_segment(sock: socket, segment_type: SegmentFlagType) -> Tuple[bool, Segment, tuple]:
+  msg, addr = sock.recvfrom(BUFFER_SIZE)
+
+  # Unwrap client message
+  segment_received = SegmentUnwrapper(msg)
+
+  # Check segment flag type
+  if segment_received.flagtype == segment_type:
+    return True, segment_received, addr
+
+  return False, segment_received, addr
+
+def three_way_handshake_client(sock, syn_segment):
+  # Performing three way handshake with server
+  three_way_success = False
+  sock.sendto(syn_segment.buffer, (HOST, PORT))
+
+  # Listening for SYNACK segment from servr
+  valid, synack_segment, addr = listening_segment(sock, SegmentFlagType.SYNACK)
+  logging.info(f'Server found at {addr}, performing three way handshake..')
+  logging.info(f'Segment SEQ={syn_segment.seqnum_data}: Sent {SegmentFlagType.getFlag(syn_segment.flagtype_data)}')
+
+  # Receive SYN ACK segment from server
+  if valid:
+    # Send response segment
+    ack_segment = Segment(CLIENT_SEQUENCE_NUM+1, synack_segment.seqnum+1, SegmentFlagType.ACK, ''.encode())
+    sock.sendto(ack_segment.build(), addr)
+    logging.info(f'Segment SEQ={synack_segment.seqnum}: Received {SegmentFlagType.getFlag(synack_segment.flagtype)}, Sent {SegmentFlagType.getFlag(ack_segment.flagtype_data)}')
+    three_way_success = True
+  else:
+    logging.info(f'Received unknown flag! Retrying three way handshake..')
+
+  return three_way_success
+
+def receive_data(sock: socket, file):
+  success = True
+  while success:
+    valid, data_segment, addr = listening_segment(sock, SegmentFlagType.DATA)
+    if valid:
+
+      if data_segment.data:
+        ack_segment = Segment(CLIENT_SEQUENCE_NUM, data_segment.seqnum+1, SegmentFlagType.ACK, ''.encode())
+        sock.sendto(ack_segment.build(), addr)
+
+        logging.info(f'Segment SEQ={data_segment.seqnum}: Received {SegmentFlagType.getFlag(data_segment.flagtype)}, Sent {SegmentFlagType.getFlag(ack_segment.flagtype)}')
+        file.write(data_segment.data)
+
+      else:
+        logging.info(f'Received empty data from {addr}')
+
+    elif data_segment.flagtype == SegmentFlagType.FIN:
+      logging.info(f'Data received successfuly! File saved at {FILE_PATH}')
+      break
+    
+    else:
+      logging.info(f'Segment flagtype not recognized!')
+      success = False
+  
+  return success
 
 def setup_client(PORT, FILE_PATH):
   s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
   logging.info(f'Client started at port {PORT}...')
 
   # Search for server in broadcast address
-  logging.info(f'Client ({HOST}, {PORT}) searching server in broadcast address')
+  logging.info(f'Client ({HOST}, {PORT}) connecting to server in broadcast address')
   
   # Build segment
   segment = Segment(CLIENT_SEQUENCE_NUM, 0, SegmentFlagType.SYN, ''.encode())
-  s.sendto(segment.buffer, (HOST, PORT))
   
   # Perform three way handshake with server
   three_way_success = False
   while not three_way_success:
-    msg, addr = s.recvfrom(DEFAULT_BUFFER_SIZE)
-    logging.info(f'Server found at {addr}, performing three way handshake..')
-
-    # Unwrap segment
-    segment_received = SegmentUnwrapper(msg)
-    logging.info(f'Segment SEQ={segment.seqnum_data}: Sent {SegmentFlagType.getFlag(segment.flagtype_data)}')
-
-    # Receive SYN ACK segment from server
-    if segment_received.flagtype == SegmentFlagType.SYNACK and segment_received.acknum == segment.seqnum_data + 1:
-      # Send response segment
-      response_segment = Segment(CLIENT_SEQUENCE_NUM+1, segment_received.seqnum+1, SegmentFlagType.ACK, ''.encode())
-      s.sendto(response_segment.build(), addr)
-      logging.info(f'Segment SEQ={segment_received.seqnum}: Received {SegmentFlagType.getFlag(segment_received.flagtype)}, Sent {SegmentFlagType.getFlag(response_segment.flagtype_data)}')
-      three_way_success = True
-    else:
-      logging.error(f'Received unknown flag from {addr}')
+    try:
+      three_way_success = three_way_handshake_client(s, segment)
+    except:
+      logging.error(f'Error occured during three way handshake with server!')
 
   # Receive data from server
   logging.info(f'Waiting data from server...')
   with open(FILE_PATH, 'wb') as f:
-    while True:
-      msg, addr = s.recvfrom(DEFAULT_BUFFER_SIZE)
-      data_received = SegmentUnwrapper(msg)
-      if data_received.flagtype == SegmentFlagType.DATA:
-
-        if data_received.data:
-          response_data = Segment(CLIENT_SEQUENCE_NUM, data_received.seqnum+1, SegmentFlagType.ACK, ''.encode())
-          s.sendto(response_data.build(), addr)
-
-          logging.info(f'Segment SEQ={data_received.seqnum}: Received {SegmentFlagType.getFlag(data_received.flagtype)}, Sent {SegmentFlagType.getFlag(response_data.flagtype)}')
-          f.write(data_received.data)
-        else:
-          logging.error(f'Received empty data from {addr}')
-      elif data_received.flagtype == SegmentFlagType.FIN:
-        logging.info(f'Data received successfuly! File saved at {FILE_PATH}')
-        break
+    try:
+      success = receive_data(s, f)
+      if not success:
+        os.remove(FILE_PATH)
+    except:
+      logging.error(f'Error occured during receiving data from server!')
+      os.remove(FILE_PATH)
 
     f.close()
 
