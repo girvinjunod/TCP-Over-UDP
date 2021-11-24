@@ -21,7 +21,7 @@ def listening_segment(sock: socket, segment_type: SegmentFlagType) -> Tuple[bool
 
   return False, segment_received, addr
 
-def three_way_handshake_client(sock):
+def three_way_handshake_client(sock) -> bool:
   # Listening for SYN segment
   valid, syn_segment, addr = listening_segment(sock, SegmentFlagType.SYN)
 
@@ -42,20 +42,14 @@ def three_way_handshake_client(sock):
 
   return False
 
-def receive_data(sock: socket, file):
-  # 	Rn := 0
-	#   Do the following forever:
-  #   	if the packet received = Rn and the packet is error free then
-  #       	Accept the packet and send it to a higher layer
-  #       	Rn := Rn + 1
-  #   	else
-  #       	Refuse packet
-  #   	Send acknowledgement for last received packet
+def receive_data(sock: socket):
+  # Receiving data from server
   base = 0
   data_ret = b''
   while True:
     valid, data_segment, addr = listening_segment(sock, SegmentFlagType.DATA)
-    if valid and data_segment.seqnum == base: # and check_sum success
+    # Segment valid and in order
+    if valid and data_segment.seqnum == base:
 
       if data_segment.data:
         ack_segment = Segment(CLIENT_SEQUENCE_NUM, data_segment.seqnum+1, SegmentFlagType.ACK, ''.encode())
@@ -70,11 +64,13 @@ def receive_data(sock: socket, file):
       
       base += 1
 
+    # Server finish sending data
     elif data_segment.flagtype == SegmentFlagType.FIN:
       logging.info(f'Data received successfuly! File saved at {FILE_PATH}')
       break
-
-    elif not valid or data_segment.seqnum > base: # Damaged segment
+    
+    # Damaged or wrong segment received
+    elif not valid or data_segment.seqnum > base:
       refuse_segment = Segment(CLIENT_SEQUENCE_NUM, base, SegmentFlagType.SYN, b'')
       sock.sendto(refuse_segment.buffer, addr)
 
@@ -88,7 +84,8 @@ def setup_client(PORT, FILE_PATH):
 
   # Search for server in broadcast address
   s.sendto(b'', (HOST, PORT))
-  logging.info(f'Client ({HOST}, {PORT}) connecting to server in broadcast address')
+  logging.info(f'Client connecting to server in broadcast address.')
+  logging.info(f'Waiting for server to initiate connection...')
   
   # Waiting for server to initiate three way handshake
   three_way_success = False
@@ -106,7 +103,7 @@ def setup_client(PORT, FILE_PATH):
   logging.info(f'Three way handshake successful! Waiting data from server...')
   with open(FILE_PATH, 'wb') as f:
     try:
-      data = receive_data(s, f)
+      data = receive_data(s)
       if not data:
         os.remove(FILE_PATH)
       else:

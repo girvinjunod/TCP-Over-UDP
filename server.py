@@ -67,15 +67,6 @@ def send_data(sock: socket, f, client: tuple):
   next_seq_num = SERVER_SEQUENCE_NUM
   # Sending data using Go-Back-N
   while base < num_segments:
-    # Sb := 0
-    # Sm := N + 1
-    # Repeat the following steps forever:
-    #   	if you receive an ack number where Rn > Sb then
-    #       	Sm := (Sm − Sb) + Rn
-    #       	Sb := Rn
-    #   	if no packet is in transmission then
-    #       	Transmit packets where Sb ≤ Sn ≤ Sm.  
-    #       	Packets are transmitted in order.
 
     # Sent data segment in sliding windows
     while next_seq_num < min(base + WINDOW_SIZE, num_segments):
