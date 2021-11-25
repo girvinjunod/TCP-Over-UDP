@@ -9,12 +9,19 @@ from segment_unwrapper import *
 HOST = socket.gethostbyname(socket.gethostname())
 CLIENT_SEQUENCE_NUM = 0
 BUFFER_SIZE = 32780
+TIMEOUT_DURATION = 10
 
 metadata = False
 filename = ""
 
 def listening_segment(sock: socket, segment_type: SegmentFlagType) -> Tuple[bool, SegmentUnwrapper, tuple]:
-  msg, addr = sock.recvfrom(BUFFER_SIZE)
+  try:
+    sock.settimeout(TIMEOUT_DURATION)
+    msg, addr = sock.recvfrom(BUFFER_SIZE)
+    sock.settimeout(None)
+  except socket.timeout:
+    logging.error(f'Segment timeout!')
+    return False, None, None
 
   # Unwrap client message
   segment_received = SegmentUnwrapper(msg)
@@ -43,6 +50,9 @@ def three_way_handshake_client(sock) -> bool:
     if valid:
       logging.info(f'Segment SEQ={ack_segment.seqnum}: Received {SegmentFlagType.getFlag(ack_segment.flagtype)}')
       return True
+
+  if synack_segment == None:
+    logging.info('No response from client')
 
   return False
 
@@ -114,7 +124,7 @@ def setup_client(PORT, FILE_PATH):
 
   # Terminate client if three way handshake failed
   if not three_way_success:
-    logging.error(f'Three way handshake failed! Terminating client...')
+    logging.info(f'Three way handshake failed! Terminating client...')
     return
 
   # Receive data from server

@@ -5,16 +5,22 @@ import time
 from typing import List, Tuple
 from segment import *
 from segment_unwrapper import *
-import threading
 
 HOST = socket.gethostbyname(socket.gethostname())
 SERVER_SEQUENCE_NUM = 0
 BUFFER_SIZE = 32780
 DATA_SIZE = 32768
 WINDOW_SIZE = 64
+TIMEOUT_DURATION = 5
 
 def listening_segment(sock: socket, segment_type: SegmentFlagType) -> Tuple[bool, SegmentUnwrapper, tuple]:
-  msg, addr = sock.recvfrom(BUFFER_SIZE)
+  try:
+    sock.settimeout(TIMEOUT_DURATION)
+    msg, addr = sock.recvfrom(BUFFER_SIZE)
+    sock.settimeout(None)
+  except socket.timeout:
+    logging.error(f'Segment timeout!')
+    return False, None, None
 
   # Unwrap client message
   segment_received = SegmentUnwrapper(msg)
@@ -45,6 +51,8 @@ def three_way_handshake_server(sock: socket, client: tuple) -> bool:
     sock.sendto(ack_segment.build(), addr)
     logging.info(f'Segment SEQ={synack_segment.seqnum}: Received {SegmentFlagType.getFlag(synack_segment.flagtype)}, Sent {SegmentFlagType.getFlag(ack_segment.flagtype_data)}')
     three_way_success = True
+  elif synack_segment==None:
+    logging.info(f'No response from client! Terminating connection..')
   else:
     logging.info(f'Received unknown flag! Retrying three way handshake..')
 
