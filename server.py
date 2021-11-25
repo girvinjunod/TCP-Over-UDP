@@ -99,6 +99,9 @@ def send_data(sock: socket, f, client: tuple, file_metadata: str = None):
       logging.info(f'Segment SEQ={base}: Packet Acked')
       
       base += 1
+    elif response_received.acknum - 1 > SERVER_SEQUENCE_NUM+base:
+      base = response_received.acknum - 1
+      logging.info(f'Segment SEQ={base}: Packet Acked')
     else :
       logging.error(f'Segment SEQ={base}: Packet not acked! Reset sliding window and resent all segment in window..')
 
@@ -106,16 +109,18 @@ def send_data(sock: socket, f, client: tuple, file_metadata: str = None):
       next_seq_num = base
 
   # Send FIN segment to client
+  fin_valid = False
   fin_segment = Segment(SERVER_SEQUENCE_NUM, 0, SegmentFlagType.FIN, b'')
-  sock.sendto(fin_segment.build(), client)
-  logging.info(f'All file segment is successfuly sent')
+  logging.info(f'All file segment is successfuly sent, sending Fin segment')
+  while not fin_valid:
+    sock.sendto(fin_segment.build(), client)
 
-  # Receive Ack segment from client
-  valid, response_received, _ = listening_segment(sock, SegmentFlagType.FINACK)
-  if valid:
-    logging.info(f'Ending connection with {client[0]}:{client[1]}')
-  else:
-    logging.info(f'Client {client[0]}:{client[1]} fail to end connection!')
+    # Receive Ack segment from client
+    fin_valid, finack_segment, _ = listening_segment(sock, SegmentFlagType.FINACK)
+    if fin_valid:
+      logging.info(f'{SegmentFlagType.getFlag(finack_segment.flagtype)} Received, ending connection with {client[0]}:{client[1]}')
+    else:
+      logging.info(f'Client {client[0]}:{client[1]} fail to respond, retrying sending Fin segment..')
 
 def setup_server(PORT, FILE_PATH):
   s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -152,15 +157,16 @@ def setup_server(PORT, FILE_PATH):
 
     for (client, metadata) in client_list:
       three_way_success = False
-      try:
-        three_way_success = three_way_handshake_server(s, client)
-      except:
-        logging.error(f'Error occured during three way handshake with client {client}!')
+      while not three_way_success:
+        try:
+          three_way_success = three_way_handshake_server(s, client)
+        except:
+          logging.error(f'Error occured during three way handshake with client {client}!')
 
-      if not three_way_success:
-        logging.info(f'Client {client[0]}:{client[1]} fail to perform three way! Continuing sending data to other client..')
-        continue
-      
+        if not three_way_success:
+          logging.info(f'Client {client[0]}:{client[1]} fail to perform three way! Retrying..')
+          continue
+
       logging.info('Three way success, sending data to client...')
       f.seek(0)
       try:

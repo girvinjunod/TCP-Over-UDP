@@ -101,7 +101,10 @@ def receive_data(sock: socket):
       sock.sendto(refuse_segment.buffer, addr)
 
       logging.warning(f'Segment SEQ={data_segment.seqnum}: Segment refused, Ack SEQ={base}.')
-  
+    elif data_segment.seqnum < base:
+      finack_segment = Segment(CLIENT_SEQUENCE_NUM, 0, SegmentFlagType.FINACK, ''.encode())
+      sock.sendto(finack_segment.buffer, addr)
+      logging.warning(f'Segment SEQ={data_segment.seqnum}: Segment already received, Resending {SegmentFlagType.getFlag(finack_segment.flagtype)}.')
   
 
   return data_ret
