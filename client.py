@@ -14,14 +14,17 @@ TIMEOUT_DURATION = 10
 metadata = False
 filename = ""
 
-def listening_segment(sock: socket, segment_type: SegmentFlagType) -> Tuple[bool, SegmentUnwrapper, tuple]:
-  try:
-    sock.settimeout(TIMEOUT_DURATION)
+def listening_segment(sock: socket, segment_type: SegmentFlagType, timeout: bool = True) -> Tuple[bool, SegmentUnwrapper, tuple]:
+  if timeout:
+    try:
+      sock.settimeout(TIMEOUT_DURATION)
+      msg, addr = sock.recvfrom(BUFFER_SIZE)
+      sock.settimeout(None)
+    except socket.timeout:
+      logging.error(f'Segment timeout!')
+      return False, None, None
+  else:
     msg, addr = sock.recvfrom(BUFFER_SIZE)
-    sock.settimeout(None)
-  except socket.timeout:
-    logging.error(f'Segment timeout!')
-    return False, None, None
 
   # Unwrap client message
   segment_received = SegmentUnwrapper(msg)
@@ -34,7 +37,7 @@ def listening_segment(sock: socket, segment_type: SegmentFlagType) -> Tuple[bool
 
 def three_way_handshake_client(sock) -> bool:
   # Listening for SYN segment
-  valid, syn_segment, addr = listening_segment(sock, SegmentFlagType.SYN)
+  valid, syn_segment, addr = listening_segment(sock, SegmentFlagType.SYN, timeout=False)
 
   if valid:
 
