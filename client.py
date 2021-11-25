@@ -101,12 +101,13 @@ def receive_data(sock: socket):
       sock.sendto(refuse_segment.buffer, addr)
 
       logging.warning(f'Segment SEQ={data_segment.seqnum}: Segment refused, Ack SEQ={base}.')
+    
+    # Segment already received
     elif data_segment.seqnum < base:
-      finack_segment = Segment(CLIENT_SEQUENCE_NUM, 0, SegmentFlagType.FINACK, ''.encode())
-      sock.sendto(finack_segment.buffer, addr)
-      logging.warning(f'Segment SEQ={data_segment.seqnum}: Segment already received, Resending {SegmentFlagType.getFlag(finack_segment.flagtype)}.')
+      ack_segment = Segment(CLIENT_SEQUENCE_NUM, 0, SegmentFlagType.ACK, ''.encode())
+      sock.sendto(ack_segment.buffer, addr)
+      logging.warning(f'Segment SEQ={data_segment.seqnum}: Segment already received, Resending {SegmentFlagType.getFlag(ack_segment.flagtype)}.')
   
-
   return data_ret
 
 def setup_client(PORT, FILE_PATH):
@@ -123,15 +124,15 @@ def setup_client(PORT, FILE_PATH):
   
   # Waiting for server to initiate three way handshake
   three_way_success = False
-  try:
-    three_way_success = three_way_handshake_client(s)
-  except:
-    logging.error(f'Error occured during three way handshake with server!')
+  while not three_way_success:
+    try:
+      three_way_success = three_way_handshake_client(s)
+    except:
+      logging.error(f'Error occured during three way handshake with server!')
 
-  # Terminate client if three way handshake failed
-  if not three_way_success:
-    logging.info(f'Three way handshake failed! Terminating client...')
-    return
+    # Terminate client if three way handshake failed
+    if not three_way_success:
+      logging.info(f'Three way handshake failed! Retrying..')
 
   # Receive data from server
   logging.info(f'Three way handshake successful! Waiting data from server...')
