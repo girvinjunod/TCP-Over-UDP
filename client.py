@@ -9,6 +9,9 @@ HOST = socket.gethostbyname(socket.gethostname())
 CLIENT_SEQUENCE_NUM = 0
 BUFFER_SIZE = 32780
 
+metadata = False
+filename = ""
+
 def listening_segment(sock: socket, segment_type: SegmentFlagType) -> Tuple[bool, SegmentUnwrapper, tuple]:
   msg, addr = sock.recvfrom(BUFFER_SIZE)
 
@@ -43,6 +46,9 @@ def three_way_handshake_client(sock) -> bool:
   return False
 
 def receive_data(sock: socket):
+  global metadata
+  global filename
+
   # Receiving data from server
   base = 0
   data_ret = b''
@@ -56,8 +62,12 @@ def receive_data(sock: socket):
         sock.sendto(ack_segment.buffer, addr)
 
         logging.info(f'Segment SEQ={data_segment.seqnum}: Received {SegmentFlagType.getFlag(data_segment.flagtype)}, Sent {SegmentFlagType.getFlag(ack_segment.flagtype)}')
-        # file.write(data_segment.data)
-        data_ret += data_segment.data
+
+        if base==0 and metadata:
+          filename = data_segment.data.decode()
+          logging.info(f'Saving file as {filename}')
+        else:
+          data_ret += data_segment.data
 
       else:
         logging.info(f'Received empty data from {addr}')
@@ -69,8 +79,6 @@ def receive_data(sock: socket):
       finack_segment = Segment(CLIENT_SEQUENCE_NUM, 0, SegmentFlagType.FINACK, ''.encode())
       sock.sendto(finack_segment.buffer, addr)
       logging.info(f'Segment SEQ={data_segment.seqnum}: Received {SegmentFlagType.getFlag(data_segment.flagtype)}, Sent {SegmentFlagType.getFlag(finack_segment.flagtype)}')
-      
-      logging.info(f'Data received successfuly! File saved at {FILE_PATH}, ending connection with server..')
       break
     
     # Damaged or wrong segment received
@@ -85,11 +93,14 @@ def receive_data(sock: socket):
   return data_ret
 
 def setup_client(PORT, FILE_PATH):
+  global metadata
+
   s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
   logging.info(f'Client started at port {PORT}...')
 
   # Search for server in broadcast address
-  s.sendto(b'', (HOST, PORT))
+  msg = b'' if not metadata else b'Metadata required'
+  s.sendto(msg, (HOST, PORT))
   logging.info(f'Client connecting to server in broadcast address.')
   logging.info(f'Waiting for server to initiate connection...')
   
@@ -107,16 +118,18 @@ def setup_client(PORT, FILE_PATH):
 
   # Receive data from server
   logging.info(f'Three way handshake successful! Waiting data from server...')
-  with open(FILE_PATH, 'wb') as f:
+  data = receive_data(s)
+  file_saved = FILE_PATH + filename if metadata else FILE_PATH
+  with open(file_saved, 'wb') as f:
     try:
-      data = receive_data(s)
       if not data:
-        os.remove(FILE_PATH)
+        os.remove(file_saved)
       else:
         f.write(data)
+        logging.info(f'Data received successfuly! File saved at {file_saved}, ending connection with server..')
     except:
       logging.error(f'Error occured during receiving data from server!')
-      os.remove(FILE_PATH)
+      os.remove(file_saved)
 
     f.close()
   
@@ -128,9 +141,18 @@ if __name__ == '__main__':
 
   formatter = logging.basicConfig(format='[%(levelname)s] %(message)s', level=logging.DEBUG)
   if n_args != 3:
-    logging.error("{} arguments given, expected 2".format(n_args-1))
+    logging.error("{} arguments given, expected 2!".format(n_args-1))
     sys.exit()
+
+  require_metadata = input("Do you require file metadata ?(y/n)")
+
+  if require_metadata == 'y':
+    metadata = True
 
   PORT = int(sys.argv[1])
   FILE_PATH = sys.argv[2]
+  if metadata and FILE_PATH[-1] != '/':
+    logging.error("File path must end with '/' to retrieve metadata!")
+    sys.exit()
+
   setup_client(PORT, FILE_PATH)

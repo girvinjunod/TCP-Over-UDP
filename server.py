@@ -48,10 +48,17 @@ def three_way_handshake_server(sock: socket, client: tuple) -> bool:
 
   return three_way_success
 
-def send_data(sock: socket, f, client: tuple):
+def send_data(sock: socket, f, client: tuple, file_metadata: str = None):
   # Read file
   seq_num = 0
   segments_to_send: List[Segment] = []
+
+  # Add metadata segment
+  if file_metadata:
+    logging.info(f'Client require metadata, sending metadata as segment 0')
+    segments_to_send.append(Segment(seq_num, 0, SegmentFlagType.DATA, file_metadata.encode()))
+    seq_num += 1
+  
   while True:
     # Read data
     data = f.read(DATA_SIZE)
@@ -113,8 +120,12 @@ def setup_server(PORT, FILE_PATH):
 
     if addr:
       # Add client address to list
-      logging.info(f'Client {addr} found')
-      client_list.append(addr)
+      if msg.decode() == 'Metadata required':
+        logging.info(f'Client {addr} found, require metadata')
+        client_list.append((addr, True))
+      else:
+        logging.info(f'Client {addr} found')
+        client_list.append((addr, False))
       cont = input('Listen more? (y/n)')
     
       if cont == 'y':
@@ -124,12 +135,12 @@ def setup_server(PORT, FILE_PATH):
 
   logging.info(f'{len(client_list)} clients found:')
   for i in range(len(client_list)):
-    logging.info(f'{i+1}. {client_list[i][0]}:{client_list[i][1]}')
+    logging.info(f'{i+1}. {client_list[i][0][0]}:{client_list[i][0][1]}')
 
   # Send message to all clients, perform three way handshake
   with open(FILE_PATH, 'rb') as f:
 
-    for client in client_list:
+    for (client, metadata) in client_list:
       three_way_success = False
       try:
         three_way_success = three_way_handshake_server(s, client)
@@ -143,7 +154,11 @@ def setup_server(PORT, FILE_PATH):
       logging.info('Three way success, sending data to client...')
       f.seek(0)
       try:
-        send_data(s, f, client)
+        if metadata:
+          filename = FILE_PATH.split('/')[-1]
+          send_data(s, f, client, filename)
+        else:
+          send_data(s, f, client)
       except Exception as e:
         logging.error(f'Error occured during sending data to {client}')
         logging.error(e)
