@@ -91,7 +91,7 @@ def send_data(sock: socket, f, client: tuple, file_metadata: str = None):
       sock.sendto(segments_to_send[next_seq_num].buffer, client)
       logging.info(f'Segment SEQ={next_seq_num}: Sent')
       next_seq_num += 1
-      #time.sleep(0.01)
+      time.sleep(0.01)
 
     # Receive Ack segment from client
     valid, response_received, _ = listening_segment(sock, SegmentFlagType.ACK)
