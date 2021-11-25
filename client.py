@@ -66,7 +66,11 @@ def receive_data(sock: socket):
 
     # Server finish sending data
     elif data_segment.flagtype == SegmentFlagType.FIN:
-      logging.info(f'Data received successfuly! File saved at {FILE_PATH}')
+      finack_segment = Segment(CLIENT_SEQUENCE_NUM, 0, SegmentFlagType.FINACK, ''.encode())
+      sock.sendto(finack_segment.buffer, addr)
+      logging.info(f'Segment SEQ={data_segment.seqnum}: Received {SegmentFlagType.getFlag(data_segment.flagtype)}, Sent {SegmentFlagType.getFlag(finack_segment.flagtype)}')
+      
+      logging.info(f'Data received successfuly! File saved at {FILE_PATH}, ending connection with server..')
       break
     
     # Damaged or wrong segment received
@@ -76,6 +80,8 @@ def receive_data(sock: socket):
 
       logging.warning(f'Segment SEQ={data_segment.seqnum}: Segment refused, Ack SEQ={base}.')
   
+  
+
   return data_ret
 
 def setup_client(PORT, FILE_PATH):
@@ -113,6 +119,9 @@ def setup_client(PORT, FILE_PATH):
       os.remove(FILE_PATH)
 
     f.close()
+  
+  logging.info(f'Closing down client...')
+  s.close()
 
 if __name__ == '__main__':
   n_args = len(sys.argv)

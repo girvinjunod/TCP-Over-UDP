@@ -1,6 +1,7 @@
 import sys
 import socket
 import logging
+import time
 from typing import List, Tuple
 from segment import *
 
@@ -8,7 +9,7 @@ HOST = socket.gethostbyname(socket.gethostname())
 SERVER_SEQUENCE_NUM = 0
 BUFFER_SIZE = 32780
 DATA_SIZE = 32768
-WINDOW_SIZE = 5
+WINDOW_SIZE = 64
 
 def listening_segment(sock: socket, segment_type: SegmentFlagType) -> Tuple[bool, SegmentUnwrapper, tuple]:
   msg, addr = sock.recvfrom(BUFFER_SIZE)
@@ -73,6 +74,7 @@ def send_data(sock: socket, f, client: tuple):
       sock.sendto(segments_to_send[next_seq_num].buffer, client)
       logging.info(f'Segment SEQ={next_seq_num}: Sent')
       next_seq_num += 1
+      time.sleep(0.1)
 
     # Receive Ack segment from client
     valid, response_received, _ = listening_segment(sock, SegmentFlagType.ACK)
@@ -86,9 +88,17 @@ def send_data(sock: socket, f, client: tuple):
       # Sent data segment in sliding windows
       next_seq_num = base
 
+  # Send FIN segment to client
   fin_segment = Segment(SERVER_SEQUENCE_NUM, 0, SegmentFlagType.FIN, b'')
   sock.sendto(fin_segment.build(), client)
-  logging.info(f'File successfuly sent to {client[0]}:{client[1]}')
+  logging.info(f'All file segment is successfuly sent')
+
+  # Receive Ack segment from client
+  valid, response_received, _ = listening_segment(sock, SegmentFlagType.FINACK)
+  if valid:
+    logging.info(f'Ending connection with {client[0]}:{client[1]}')
+  else:
+    logging.info(f'Client {client[0]}:{client[1]} fail to end connection!')
 
 def setup_server(PORT, FILE_PATH):
   s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -138,6 +148,9 @@ def setup_server(PORT, FILE_PATH):
         logging.error(f'Error occured during sending data to {client}')
         logging.error(e)
         continue
+  
+  logging.info('Closing down server..')
+  s.close()
 
 if __name__ == '__main__':
   n_args = len(sys.argv)

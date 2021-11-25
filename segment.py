@@ -13,6 +13,7 @@ class SegmentFlagType():
     FIN = b"\x01"
     ACK = b"\x10"
     SYNACK = b"\x12"
+    FINACK = b"\x11"
 
     def getFlag(flag: bytes):
         if flag == SegmentFlagType.DATA:
@@ -25,6 +26,8 @@ class SegmentFlagType():
             return "Ack"
         elif flag == SegmentFlagType.SYNACK:
             return "Syn Ack"
+        elif flag == SegmentFlagType.FINACK:
+            return "Fin Ack"
         else:
             return "Unknown"
 
