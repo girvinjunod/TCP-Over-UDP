@@ -9,7 +9,7 @@ from segment_unwrapper import *
 HOST = socket.gethostbyname(socket.gethostname())
 CLIENT_SEQUENCE_NUM = 0
 BUFFER_SIZE = 32780
-TIMEOUT_DURATION = 10
+TIMEOUT_DURATION = 5
 
 metadata = False
 filename = ""
@@ -90,9 +90,23 @@ def receive_data(sock: socket):
 
     # Server finish sending data
     elif data_segment.flagtype == SegmentFlagType.FIN:
-      finack_segment = Segment(CLIENT_SEQUENCE_NUM, 0, SegmentFlagType.FINACK, ''.encode())
+      ack_segment = Segment(CLIENT_SEQUENCE_NUM, data_segment.seqnum+1, SegmentFlagType.ACK, ''.encode())
+      sock.sendto(ack_segment.buffer, addr)
+      logging.info(f'Segment SEQ={data_segment.seqnum}: Received {SegmentFlagType.getFlag(data_segment.flagtype)}, Sent {SegmentFlagType.getFlag(ack_segment.flagtype)}')
+      
+      while True:
+        valid, fin_segment,_ = listening_segment(sock, SegmentFlagType.FIN)
+        if valid:
+          ack_segment = Segment(CLIENT_SEQUENCE_NUM, fin_segment.seqnum+1, SegmentFlagType.ACK, ''.encode())
+          sock.sendto(ack_segment.buffer, addr)
+          logging.info(f'Segment SEQ={fin_segment.seqnum}: Received {SegmentFlagType.getFlag(fin_segment.flagtype)}, Sent {SegmentFlagType.getFlag(ack_segment.flagtype)}')
+        else:
+          logging.info(f'No more response from server, ending connection..')
+          break
+
+      finack_segment = Segment(CLIENT_SEQUENCE_NUM, data_segment.seqnum+1, SegmentFlagType.FINACK, ''.encode())
       sock.sendto(finack_segment.buffer, addr)
-      logging.info(f'Segment SEQ={data_segment.seqnum}: Received {SegmentFlagType.getFlag(data_segment.flagtype)}, Sent {SegmentFlagType.getFlag(finack_segment.flagtype)}')
+      logging.info(f'Segment SEQ={finack_segment.seqnum_data}: Sent {SegmentFlagType.getFlag(finack_segment.flagtype)}')
       break
     
     # Damaged or wrong segment received
@@ -125,10 +139,7 @@ def setup_client(PORT, FILE_PATH):
   # Waiting for server to initiate three way handshake
   three_way_success = False
   while not three_way_success:
-    try:
-      three_way_success = three_way_handshake_client(s)
-    except:
-      logging.error(f'Error occured during three way handshake with server!')
+    three_way_success = three_way_handshake_client(s)
 
     # Terminate client if three way handshake failed
     if not three_way_success:
@@ -144,7 +155,7 @@ def setup_client(PORT, FILE_PATH):
         os.remove(file_saved)
       else:
         f.write(data)
-        logging.info(f'Data received successfuly! File saved at {file_saved}, ending connection with server..')
+        logging.info(f'Data received successfuly! File saved at {file_saved}')
     except:
       logging.error(f'Error occured during receiving data from server!')
       os.remove(file_saved)

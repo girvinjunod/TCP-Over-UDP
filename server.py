@@ -113,9 +113,24 @@ def send_data(sock: socket, f, client: tuple, file_metadata: str = None):
     sock.sendto(fin_segment.build(), client)
 
     # Receive Ack segment from client
-    fin_valid, finack_segment, _ = listening_segment(sock, SegmentFlagType.FINACK)
-    if fin_valid:
-      logging.info(f'{SegmentFlagType.getFlag(finack_segment.flagtype)} Received, ending connection with {client[0]}:{client[1]}')
+    ack_valid, ack_received, _ = listening_segment(sock, SegmentFlagType.ACK)
+    if ack_valid:
+      logging.info(f'{SegmentFlagType.getFlag(ack_received.flagtype)} Received, ending connection with {client[0]}:{client[1]}')
+      
+      # Wait for client to confirm closing connection
+      time.sleep(5)
+
+      fin_valid, finack_segment, _ = listening_segment(sock, SegmentFlagType.FINACK)
+      if fin_valid:
+        logging.info('Client is closing, sending last Ack')
+        ack_segment = Segment(SERVER_SEQUENCE_NUM, finack_segment.seqnum+1, SegmentFlagType.ACK, b'')
+        sock.sendto(ack_segment.buffer, client)
+      else:
+        break
+    elif ack_received.flagtype == SegmentFlagType.FINACK:
+      logging.info('Client is closing, sending last Ack')
+      ack_segment = Segment(SERVER_SEQUENCE_NUM, finack_segment.seqnum+1, SegmentFlagType.ACK, b'')
+      sock.sendto(ack_segment.buffer, client)
     else:
       logging.info(f'Client {client[0]}:{client[1]} fail to respond, retrying sending Fin segment..')
 
