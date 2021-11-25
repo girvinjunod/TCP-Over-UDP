@@ -4,6 +4,7 @@ import logging
 import sys
 from typing import Tuple
 from segment import *
+from segment_unwrapper import *
 
 HOST = socket.gethostbyname(socket.gethostname())
 CLIENT_SEQUENCE_NUM = 0
