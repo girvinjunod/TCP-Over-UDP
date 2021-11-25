@@ -104,9 +104,9 @@ def receive_data(sock: socket):
     
     # Segment already received
     elif data_segment.seqnum < base:
-      ack_segment = Segment(CLIENT_SEQUENCE_NUM, 0, SegmentFlagType.ACK, ''.encode())
+      ack_segment = Segment(CLIENT_SEQUENCE_NUM, base, SegmentFlagType.ACK, ''.encode())
       sock.sendto(ack_segment.buffer, addr)
-      logging.warning(f'Segment SEQ={data_segment.seqnum}: Segment already received, Resending {SegmentFlagType.getFlag(ack_segment.flagtype)}.')
+      logging.warning(f'Segment SEQ={data_segment.seqnum}: Segment already received, Ack SEQ={SegmentFlagType.getFlag(ack_segment.flagtype)}.')
   
   return data_ret
 

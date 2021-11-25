@@ -99,9 +99,6 @@ def send_data(sock: socket, f, client: tuple, file_metadata: str = None):
       logging.info(f'Segment SEQ={base}: Packet Acked')
       
       base += 1
-    elif response_received.acknum - 1 > SERVER_SEQUENCE_NUM+base:
-      base = response_received.acknum - 1
-      logging.info(f'Segment SEQ={base}: Packet Acked')
     else :
       logging.error(f'Segment SEQ={base}: Packet not acked! Reset sliding window and resent all segment in window..')
 
@@ -158,10 +155,7 @@ def setup_server(PORT, FILE_PATH):
     for (client, metadata) in client_list:
       three_way_success = False
       while not three_way_success:
-        try:
-          three_way_success = three_way_handshake_server(s, client)
-        except:
-          logging.error(f'Error occured during three way handshake with client {client}!')
+        three_way_success = three_way_handshake_server(s, client)
 
         if not three_way_success:
           logging.info(f'Client {client[0]}:{client[1]} fail to perform three way! Retrying..')
